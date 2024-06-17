@@ -10,15 +10,30 @@ import urllib.request
 import random
 from gtts import gTTS
 import sqlite3
+import logging
+import time
+from time import strftime
+import datetime
+import khayyam
+import datetime
+import time
+from IPython.display import HTML
+from bs4 import BeautifulSoup
+import base64
+import os
+import phonenumbers
+import phonenumbers
+from phonenumbers import geocoder, carrier
+from deep_translator import GoogleTranslator
+
 conn = sqlite3.connect('chatbot_data.db')
-def main():
-    st.title("انیمه کردن تصاویر")
-    image_link = st.text_input("لطفاً لینک عکس را وارد کنید:")
-    if st.button("انیمه کردن"):
-        animate_image(image_link)
+
+
 # ایجاد یک cursor
 cursor = conn.cursor()
-
+LOG_FILE = 'user_logs.log'
+LOG_FORMAT = '%(asctime)s - %(levelname)s - %(message)s'
+logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format=LOG_FORMAT)
 # ایجاد جدول برای ذخیره پاسخ‌های Chatbot
 cursor.execute('''
     CREATE TABLE IF NOT EXISTS chatbot_responses (
@@ -28,11 +43,35 @@ cursor.execute('''
     )
     
 ''')
+def get_phone_number_info(phone_number):
+    try:
+      
+        parsed_phone_number = phonenumbers.parse(phone_number, "IR")
+        
+        # دریافت اطلاعات مربوط به موقعیت جغرافیایی
+        location = geocoder.description_for_number(parsed_phone_number, "fa")
+        
+        # دریافت اطلاعات مربوط به اپراتور
+        operator = carrier.name_for_number(parsed_phone_number, "fa")
+        
+        # بازگشت اطلاعات به ترتیب مطلوب
+        return (phone_number, parsed_phone_number.country_code, parsed_phone_number.national_number, location, operator)
+    except phonenumbers.NumberParseException as e:
+        return (phone_number, None, None, None, None)
 def fetch_estekhare():
     url = "http://api-free.ir/api/es.php"
     response = requests.get(url)
     data = response.json()
     return data
+def get_bmi_category(bmi):
+    if bmi < 18.5:
+        return "کمبود وزن"
+    elif 18.5 <= bmi < 25:
+        return "طبیعی"
+    elif 25 <= bmi < 30:
+        return "اضافه وزن"
+    else:
+        return "چاقی"
 def animate_image(image_link):
     # لینک وب‌سرویس
     url = f'http://api-free.ir/api/enime/?img={image_link}'
@@ -53,16 +92,24 @@ def animate_image(image_link):
         st.success("تصویر انیمه شده با موفقیت ذخیره شد.")
     else:
         st.error("دریافت نتیجه انیمه شده با مشکل مواجه شده است.")
+
+
 def chatgpt4(text):
     s = requests.Session()
-    r = random.randint(0, 1)
     
-    if r == 0:
-        chat = s.get(f"http://www.mahrez.iapp.ir/Gpt/?text={text}").json()["message"]
-        return chat
-    else:
-        chat_2 = s.get(f"http://api-free.ir/api/chat.php?text={text}").json()["result"]
-        return chat_2 
+    
+    
+    chat = s.get(f"http://api-free.ir/api/bard.php?text={text}").json()["result"]
+    return chat
+
+    
+
+# اضافه شده
+def add_something(text):
+    s = requests.Session()
+    added_text = s.get(f"http://api-free.ir/api/bard.php?text={text}").json()["text"]
+    return added_text
+ 
 def download_logo_and_save(text):
     random_logo_url = fetch_random_logo(text)
     if random_logo_url:
@@ -89,6 +136,8 @@ def download_logo_and_save(text):
 #     except Exception as e:
 #         st.error("Error occurred:", e)
 #         return None
+
+
 
 def download_logo(logo_url):
     try:
@@ -140,6 +189,15 @@ def download_and_save_music(file_path, music_link):
 
 # https://chatgpt.ai/
 
+def save_to_file(filename, content):
+    with open(filename, 'w', encoding='utf-8') as file:
+        file.write(content)
+
+def download_image(img_data, folder):
+    img_data = img_data.split(',')[1]  # جدا کردن بخش اطلاعاتی از داده‌های تصویر
+    img_binary = base64.b64decode(img_data)  # رمزگشایی داده‌های باینری تصویر
+    with open(os.path.join(folder, f'image_{len(os.listdir(folder)) + 1}.png'), 'wb') as file:
+        file.write(img_binary)
 def get_random_music_link():
     api_url = "https://api-free.ir/api/music/"
     response = requests.get(api_url)
@@ -176,7 +234,7 @@ if inp:
             with open("downloaded_image.jpg", "wb") as out_file:
                 
                 shutil.copyfileobj(response.raw, out_file)
-                st.image("downloaded_image.jpg", use_column_width=True) 
+                st.image("downloaded_image.jpg") 
                 
                     
         
@@ -306,7 +364,7 @@ if inp:
         # ذخیره تصویر با نام خاص
         image_name = "random_image.jpg"
         image.save(image_name)
-        st.image("random_image.jpg",use_column_width=True)
+        st.image("random_image.jpg")
    
     
     elif inp.startswith("عکس"):
@@ -316,7 +374,7 @@ if inp:
         image = inp.replace("عکس","").strip()
         try :
             
-            response = requests.get(f"http://api-free.ir/api/img.php?text={image}&v=3.5")
+            response = requests.get(f"http://api-free.ir/api/img.php?text={image}&v=4")
             response.raise_for_status()
                 
             data = response.json()
@@ -471,7 +529,103 @@ if inp:
             st.image(image, caption='تصویر استخاره', use_column_width=True)
         else:
             st.error("خطا در دریافت اطلاعات استخاره")
+    elif inp =="time" or inp =="تایم":
+        current_time = time.strftime("%H:%M:%S")
+        
+        st.text_area("Chatbot's Response", value=f"تایم کنونی :{   current_time}"  , height=400)
+    elif inp =="تاریخ":
+        tariq =khayyam.JalaliDatetime.today().strftime("%A %D %B %Y")
+        st.text_area("Chatbot's Response", value=f"تاریخ شما:\n{tariq}"  , height=400)
     
+    elif inp.startswith("سورس"):
+        
+        url = inp.replace("سورس", "")
+        response = requests.get(url)
+        if response.status_code == 200:
+            st.text("در حال دریافت قالب وب‌سایت...")
+            
+            soup = BeautifulSoup(response.content, 'html.parser')
+
+            # استخراج قالب وب‌سایت
+            website_template = soup.prettify()
+
+            # استخراج کدهای CSS
+            css_code = '\n'.join([style.get_text() for style in soup.find_all('style')])
+
+            # استخراج کدهای JavaScript
+            js_code = '\n'.join([script.get_text() for script in soup.find_all('script') if script.get('src') is None])
+
+            # نمایش قالب وب‌سایت
+            st.write("قالب وب‌سایت:")
+            st.code(website_template, language='html')
+
+            # نمایش کدهای CSS
+            st.write("کدهای CSS:")
+            st.code(css_code, language='css')
+
+            # نمایش کدهای JavaScript
+            st.write("کدهای JavaScript:")
+            st.code(js_code, language='javascript')
+
+            # نمایش تصاویر
+            st.write("تصاویر:")
+            for img in soup.find_all('img'):
+                img_url = img.get('src')
+                if img_url:
+                    st.image(img_url)
+
+        else:
+            st.error(f"خطا: {response.status_code}")
+    elif inp.startswith("info:"):
+        st.text("منتظربمانید برای به دست اوردن اطلاعات شماره")
+        phone_number =inp.replace("info:","")
+        phone_number_info = get_phone_number_info(phone_number)
+        st.write("شماره موبایل:", phone_number_info[0])
+        st.write("کد کشور:", phone_number_info[1])
+        st.write("شماره ملی:", phone_number_info[2])
+        st.write("موقعیت جغرافیایی:", phone_number_info[3])
+        st.write("اپراتور:", phone_number_info[4])
+    
+    elif inp.startswith("bmi:"):
+        st.write("درحال به دست اوردن محاسبه توده بدنی")
+        t=inp.replace("bmi:","")
+        if ',h' in t:
+            
+            
+            try:
+                weight, height = list(map(float, inp.split('w')[1].split(',h')[0])), float(inp.split(',h')[1])
+                weight = weight[0]  # چون map به لیست تبدیل شده است، باید مقدار مورد نیاز را استخراج کنیم
+                bmi = weight / ((height / 100) ** 2)
+                bmi_category = get_bmi_category(bmi)
+                st.write(f"BMI شما: {bmi:.2f}\nدر دسته‌بندی BMI: {bmi_category}")
+            except ValueError:
+                st.error("مقادیر رادرست وارد کنید")
+    elif inp=="چنل":
+        st.write("بفرما چنل ما :\n@Python_Source_1403 \n@sokhon_yar")
+    
+    elif inp.startswith("ترجمه"):
+        translit =inp.replace("ترجمه","")
+        
+        r =GoogleTranslator(source='auto',target='fa').translate(translit)
+        st.write(f"ترجمه شده :\n{r}")
+    
+    
+        
+        
+        
+    
+                
+
+
+
+
+
+        
+            
+        
+        
+        
+        
     
     
     
@@ -512,9 +666,11 @@ if inp:
             st.text_area("Chatbot's Response", value=chat  , height=400)
             insert_chatbot_response(inp, chat)
             
+            a=logging.info(f"User input: {inp}, Chatbot response: {chat}")
+            with open(LOG_FILE, 'r') as file:
+                print(file.read())
+                 
     
-            
-            
             
             
             
